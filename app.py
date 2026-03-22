@@ -263,10 +263,14 @@ for i, (key, label, unit, higher_better) in enumerate(metric_display):
     if yesterday and val is not None and yesterday.get(key) is not None:
         delta = val - yesterday[key]
     with cols[i]:
-        val_str = f"{val}{unit}" if val is not None else "\u2014"
-        delta_str = f"{delta:+.1f}" if delta is not None else None
-        st.metric(label=label, value=val_str, delta=delta_str,
-                  delta_color="normal" if higher_better else "inverse")
+        if key == "vo2_max" and val is None:
+            st.metric(label=label, value="No data yet")
+            st.caption("Needs 1 outdoor walk/run with GPS")
+        else:
+            val_str = f"{val}{unit}" if val is not None else "\u2014"
+            delta_str = f"{delta:+.1f}" if delta is not None else None
+            st.metric(label=label, value=val_str, delta=delta_str,
+                      delta_color="normal" if higher_better else "inverse")
 
 # Zone 2 weekly
 with cols[4]:
