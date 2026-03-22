@@ -43,24 +43,58 @@ def check_password():
 # --- Data fetching from private repo ---
 @st.cache_data(ttl=300)  # Cache for 5 minutes
 def fetch_data_files(days_back: int) -> list[dict]:
-    """Fetch JSON data files from the private GitHub repo."""
+    """Fetch JSON data files from the private GitHub repo.
+
+    Lists all files in data/ first (single API call), then fetches
+    only the ones in our date range. Uses GitHub's raw content API
+    for faster downloads.
+    """
     token = st.secrets.get("github_token", "")
     headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
+    session = requests.Session()
+    session.headers.update(headers)
+    session.timeout = 15
 
     today = date.today()
+    cutoff = today - timedelta(days=days_back)
+
+    # List all files in data/ (single API call)
+    url = f"https://api.github.com/repos/{REPO}/contents/{DATA_PATH}"
+    resp = session.get(url)
+    if resp.status_code != 200:
+        return []
+
+    files = resp.json()
+    if not isinstance(files, list):
+        return []
+
+    # Filter to date range and sort
+    target_files = []
+    for f in files:
+        name = f.get("name", "")
+        if not name.endswith(".json"):
+            continue
+        file_date_str = name.replace(".json", "")
+        try:
+            file_date = date.fromisoformat(file_date_str)
+            if cutoff <= file_date <= today:
+                target_files.append((file_date, f.get("download_url", "")))
+        except ValueError:
+            continue
+
+    target_files.sort(key=lambda x: x[0])
+
+    # Fetch each file's content (raw URL is faster than contents API)
     results = []
+    raw_headers = {"Authorization": f"token {token}"}
+    for _, download_url in target_files:
+        try:
+            resp = session.get(download_url, headers=raw_headers, timeout=10)
+            if resp.status_code == 200:
+                results.append(resp.json())
+        except (requests.RequestException, json.JSONDecodeError):
+            continue
 
-    for i in range(days_back):
-        d = today - timedelta(days=i)
-        url = f"https://api.github.com/repos/{REPO}/contents/{DATA_PATH}/{d.isoformat()}.json"
-        resp = requests.get(url, headers=headers)
-        if resp.status_code == 200:
-            content = resp.json()
-            import base64
-            raw = base64.b64decode(content["content"]).decode()
-            results.append(json.loads(raw))
-
-    results.reverse()  # Oldest first
     return results
 
 
