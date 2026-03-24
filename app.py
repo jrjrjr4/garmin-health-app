@@ -23,6 +23,8 @@ TARGETS = {
     "sleep_hours": {"green": 7.0, "yellow": 6.0},
     "vo2_max": {"green": 42, "yellow": 35},
     "zone2_weekly_min": {"green": 150, "yellow": 90},
+    "body_battery_morning": {"green": 70, "yellow": 40},
+    "stress_avg": {"green": 30, "yellow": 50},
 }
 
 
@@ -186,6 +188,38 @@ def extract_metrics(data: dict) -> dict:
                     if act_type in ("running", "cycling", "walking") and dur > 0:
                         zone2 += dur / 60
 
+    # Body Battery
+    body_battery = None
+    bb_data = data.get("body_battery")
+    if isinstance(bb_data, list):
+        for day in bb_data:
+            if isinstance(day, dict):
+                charged = day.get("charged")
+                if charged is not None:
+                    body_battery = int(charged)
+                    break
+    elif isinstance(bb_data, dict) and bb_data.get("charged"):
+        body_battery = int(bb_data["charged"])
+
+    # Stress
+    stress_avg = None
+    stress_data = data.get("stress", {})
+    if isinstance(stress_data, dict) and "error" not in stress_data:
+        avg = stress_data.get("overallStressLevel") or stress_data.get("avgStressLevel")
+        if avg is not None:
+            stress_avg = int(avg)
+        else:
+            values = stress_data.get("stressValuesArray", [])
+            if isinstance(values, list) and values:
+                svals = []
+                for entry in values:
+                    if isinstance(entry, (list, tuple)) and len(entry) >= 2:
+                        v = entry[1]
+                        if v is not None and int(v) > 0:
+                            svals.append(int(v))
+                if svals:
+                    stress_avg = round(sum(svals) / len(svals))
+
     return {
         "date": data.get("date"),
         "hrv": hrv,
@@ -196,6 +230,8 @@ def extract_metrics(data: dict) -> dict:
         "sleep_hours": sleep_hours,
         "vo2_max": vo2,
         "zone2_min": round(zone2, 1) if zone2 > 0 else 0.0,
+        "body_battery_morning": body_battery,
+        "stress_avg": stress_avg,
     }
 
 
@@ -205,7 +241,7 @@ def score_metric(name, value):
     target = TARGETS.get(name)
     if not target:
         return "grey"
-    if name == "resting_hr":
+    if name in ("resting_hr", "stress_avg"):
         if value <= target["green"]:
             return "green"
         return "yellow" if value <= target["yellow"] else "red"
@@ -249,12 +285,13 @@ st.header("Today's Snapshot")
 latest = all_metrics[-1]
 yesterday = all_metrics[-2] if len(all_metrics) > 1 else None
 
-cols = st.columns(5)
+cols = st.columns(6)
 metric_display = [
     ("hrv", "HRV", "ms", True),
     ("resting_hr", "Resting HR", "bpm", False),
     ("sleep_score", "Sleep", "/100", True),
-    ("vo2_max", "VO2 Max", "", True),
+    ("body_battery_morning", "Body Battery", "/100", True),
+    ("stress_avg", "Stress", "", False),
 ]
 
 for i, (key, label, unit, higher_better) in enumerate(metric_display):
@@ -263,17 +300,13 @@ for i, (key, label, unit, higher_better) in enumerate(metric_display):
     if yesterday and val is not None and yesterday.get(key) is not None:
         delta = val - yesterday[key]
     with cols[i]:
-        if key == "vo2_max" and val is None:
-            st.metric(label=label, value="No data yet")
-            st.caption("Needs 1 outdoor walk/run with GPS")
-        else:
-            val_str = f"{val}{unit}" if val is not None else "\u2014"
-            delta_str = f"{delta:+.1f}" if delta is not None else None
-            st.metric(label=label, value=val_str, delta=delta_str,
-                      delta_color="normal" if higher_better else "inverse")
+        val_str = f"{val}{unit}" if val is not None else "\u2014"
+        delta_str = f"{delta:+.1f}" if delta is not None else None
+        st.metric(label=label, value=val_str, delta=delta_str,
+                  delta_color="normal" if higher_better else "inverse")
 
 # Zone 2 weekly
-with cols[4]:
+with cols[5]:
     week_z2 = sum(m.get("zone2_min", 0) or 0 for m in all_metrics[-7:])
     st.metric(label="Zone 2 (Week)", value=f"{week_z2:.0f}/150 min")
 
@@ -306,6 +339,14 @@ with col1:
 with col2:
     st.plotly_chart(make_chart("Resting HR (bpm)", "resting_hr", "#ff6b6b", TARGETS["resting_hr"]["green"], invert=True), use_container_width=True)
     st.plotly_chart(make_chart("VO2 Max", "vo2_max", "#4ade80", TARGETS["vo2_max"]["green"]), use_container_width=True)
+
+# Recovery & Stress
+st.header("Recovery & Stress")
+rc1, rc2 = st.columns(2)
+with rc1:
+    st.plotly_chart(make_chart("Body Battery (morning)", "body_battery_morning", "#f59e0b", TARGETS["body_battery_morning"]["green"]), use_container_width=True)
+with rc2:
+    st.plotly_chart(make_chart("Stress (daily avg)", "stress_avg", "#ef4444", TARGETS["stress_avg"]["green"], invert=True), use_container_width=True)
 
 # Sleep breakdown
 st.header("Sleep Breakdown")
