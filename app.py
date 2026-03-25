@@ -32,10 +32,22 @@ TARGETS = {
 def check_password():
     if st.session_state.get("authenticated"):
         return True
+
+    # Check for token in URL query params (persistent login)
+    import hashlib
+    correct_pw = st.secrets.get("dashboard_password", "")
+    token = hashlib.sha256(correct_pw.encode()).hexdigest()[:16]
+    params = st.query_params
+    if params.get("token") == token:
+        st.session_state.authenticated = True
+        return True
+
     password = st.text_input("Password", type="password")
     if password:
-        if password == st.secrets.get("dashboard_password", ""):
+        if password == correct_pw:
             st.session_state.authenticated = True
+            # Set token in URL so bookmarking keeps you logged in
+            st.query_params["token"] = token
             st.rerun()
         else:
             st.error("Incorrect password")
