@@ -337,7 +337,7 @@ with col1:
     st.plotly_chart(make_chart("HRV (ms)", "hrv", "#00d4ff", TARGETS["hrv"]["green"]), use_container_width=True)
     st.plotly_chart(make_chart("Sleep Score", "sleep_score", "#a78bfa", TARGETS["sleep_score"]["green"]), use_container_width=True)
 with col2:
-    st.plotly_chart(make_chart("Resting HR (bpm)", "resting_hr", "#ff6b6b", TARGETS["resting_hr"]["green"], invert=True), use_container_width=True)
+    st.plotly_chart(make_chart("Resting HR (bpm)", "resting_hr", "#ff6b6b", TARGETS["resting_hr"]["green"]), use_container_width=True)
     st.plotly_chart(make_chart("VO2 Max", "vo2_max", "#4ade80", TARGETS["vo2_max"]["green"]), use_container_width=True)
 
 # Recovery & Stress
@@ -346,7 +346,7 @@ rc1, rc2 = st.columns(2)
 with rc1:
     st.plotly_chart(make_chart("Body Battery (morning)", "body_battery_morning", "#f59e0b", TARGETS["body_battery_morning"]["green"]), use_container_width=True)
 with rc2:
-    st.plotly_chart(make_chart("Stress (daily avg)", "stress_avg", "#ef4444", TARGETS["stress_avg"]["green"], invert=True), use_container_width=True)
+    st.plotly_chart(make_chart("Stress (daily avg)", "stress_avg", "#ef4444", TARGETS["stress_avg"]["green"]), use_container_width=True)
 
 # Sleep breakdown
 st.header("Sleep Breakdown")
