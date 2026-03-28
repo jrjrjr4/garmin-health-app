@@ -22,10 +22,40 @@ TARGETS = {
     "rem_sleep_pct": {"green": 20, "yellow": 15},
     "sleep_hours": {"green": 7.0, "yellow": 6.0},
     "vo2_max": {"green": 42, "yellow": 35},
-    "zone2_weekly_min": {"green": 150, "yellow": 90},
+    "zone2_weekly_min": {"green": 180, "yellow": 120},
     "body_battery_morning": {"green": 70, "yellow": 40},
     "stress_avg": {"green": 30, "yellow": 50},
+    "training_load": {"green": 700, "yellow": 400},
 }
+
+# --- Dark theme CSS ---
+DARK_CSS = """
+<style>
+    .stApp { background-color: #0d1117; }
+    [data-testid="stSidebar"] { background-color: #151b23; }
+    .stApp header { background-color: #0d1117; }
+    [data-testid="stVerticalBlock"] > [data-testid="stVerticalBlockBorderWrapper"] {
+        background-color: #151b23;
+        border: 1px solid #21262d;
+        border-radius: 12px;
+        padding: 1rem;
+    }
+    [data-testid="stMetric"] {
+        background-color: #151b23;
+        border: 1px solid #21262d;
+        border-radius: 10px;
+        padding: 0.75rem 1rem;
+    }
+    h1, h2, h3 { color: #e6edf3 !important; font-weight: 600 !important; }
+    .metric-green [data-testid="stMetric"] { border-left: 3px solid #4ade80; }
+    .metric-yellow [data-testid="stMetric"] { border-left: 3px solid #facc15; }
+    .metric-red [data-testid="stMetric"] { border-left: 3px solid #f87171; }
+    .metric-grey [data-testid="stMetric"] { border-left: 3px solid #6b7280; }
+</style>
+"""
+
+CHART_BG = "#0d1117"
+PANEL_BG = "#151b23"
 
 
 # --- Auth ---
@@ -232,8 +262,27 @@ def extract_metrics(data: dict) -> dict:
                 if svals:
                     stress_avg = round(sum(svals) / len(svals))
 
+    # Training Load
+    training_load = None
+    tl_data = data.get("training_status", {})
+    if isinstance(tl_data, dict) and "error" not in tl_data:
+        for k in ("weeklyTrainingLoad", "trainingLoadBalance", "totalTrainingLoad"):
+            val = tl_data.get(k)
+            if val is not None:
+                training_load = float(val)
+                break
+        if training_load is None:
+            ld = tl_data.get("trainingLoadData", tl_data.get("loadData", {}))
+            if isinstance(ld, dict):
+                for k in ("weeklyTrainingLoad", "totalLoad", "trainingLoad"):
+                    val = ld.get(k)
+                    if val is not None:
+                        training_load = float(val)
+                        break
+
     return {
         "date": data.get("date"),
+        "collected_at": data.get("collected_at"),
         "hrv": hrv,
         "resting_hr": resting_hr,
         "sleep_score": sleep_score,
@@ -244,6 +293,7 @@ def extract_metrics(data: dict) -> dict:
         "zone2_min": round(zone2, 1) if zone2 > 0 else 0.0,
         "body_battery_morning": body_battery,
         "stress_avg": stress_avg,
+        "training_load": training_load,
     }
 
 
@@ -270,8 +320,15 @@ def rolling_average(values, window=7):
     return result
 
 
+def _hex_to_rgb(hex_color):
+    """Convert #rrggbb to 'r, g, b' string for rgba()."""
+    h = hex_color.lstrip("#")
+    return f"{int(h[0:2], 16)}, {int(h[2:4], 16)}, {int(h[4:6], 16)}"
+
+
 # --- Page ---
 st.set_page_config(page_title="Health Dashboard", page_icon="\U0001f4aa", layout="wide")
+st.markdown(DARK_CSS, unsafe_allow_html=True)
 
 if not check_password():
     st.stop()
@@ -291,13 +348,17 @@ if not raw_data:
 all_metrics = [extract_metrics(d) for d in raw_data]
 dates = [m["date"] for m in all_metrics]
 
+# --- Last updated ---
+collected_at = all_metrics[-1].get("collected_at", "")
+if collected_at:
+    st.caption(f"Last synced: {collected_at[:16].replace('T', ' ')} UTC")
+
 # --- Today's summary ---
 st.header("Today's Snapshot")
 
 latest = all_metrics[-1]
 yesterday = all_metrics[-2] if len(all_metrics) > 1 else None
 
-cols = st.columns(6)
 metric_display = [
     ("hrv", "HRV", "ms", True),
     ("resting_hr", "Resting HR", "bpm", False),
@@ -306,43 +367,68 @@ metric_display = [
     ("stress_avg", "Stress", "", False),
 ]
 
+cols = st.columns(len(metric_display) + 1)
+
 for i, (key, label, unit, higher_better) in enumerate(metric_display):
     val = latest.get(key)
+    color = score_metric(key, val)
     delta = None
     if yesterday and val is not None and yesterday.get(key) is not None:
         delta = val - yesterday[key]
     with cols[i]:
+        st.markdown(f'<div class="metric-{color}">', unsafe_allow_html=True)
         val_str = f"{val}{unit}" if val is not None else "\u2014"
         delta_str = f"{delta:+.1f}" if delta is not None else None
         st.metric(label=label, value=val_str, delta=delta_str,
                   delta_color="normal" if higher_better else "inverse")
+        st.markdown("</div>", unsafe_allow_html=True)
 
 # Zone 2 weekly
-with cols[5]:
+z2_green = TARGETS["zone2_weekly_min"]["green"]
+z2_yellow = TARGETS["zone2_weekly_min"]["yellow"]
+
+with cols[-1]:
     week_z2 = sum(m.get("zone2_min", 0) or 0 for m in all_metrics[-7:])
-    st.metric(label="Zone 2 (Week)", value=f"{week_z2:.0f}/150 min")
+    z2_color = score_metric("zone2_weekly_min", week_z2)
+    st.markdown(f'<div class="metric-{z2_color}">', unsafe_allow_html=True)
+    st.metric(label="Zone 2 (Week)", value=f"{week_z2:.0f}/{z2_green} min")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+# --- Consistency ---
+# Compute simple consistency stats from the loaded data
+sleep_hits = sum(1 for m in all_metrics[-7:] if m.get("sleep_hours") and m["sleep_hours"] >= 6.5)
+exercise_hits = sum(1 for d in raw_data[-7:] if isinstance(d.get("activities", []), list)
+                    and any(isinstance(a, dict) and "error" not in a for a in d.get("activities", [])))
+cons_parts = []
+if sleep_hits > 0:
+    cons_parts.append(f"Sleep {sleep_hits}/7 nights")
+if exercise_hits > 0:
+    cons_parts.append(f"Exercise {exercise_hits}/7 days")
+if cons_parts:
+    st.markdown(f"**Consistency:** {' \u00b7 '.join(cons_parts)}")
 
 
 # --- Charts ---
-st.header("Trends")
-
-
-def make_chart(title, key, color, target=None, invert=False):
+def make_chart(title, key, color, target=None):
     vals = [m.get(key) for m in all_metrics]
     smoothed = rolling_average(vals)
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=dates, y=vals, mode="markers",
                              marker=dict(color=color, size=5, opacity=0.4), name="Daily"))
     fig.add_trace(go.Scatter(x=dates, y=smoothed, mode="lines",
-                             line=dict(color=color, width=3), name="7-day avg"))
+                             line=dict(color=color, width=3), name="7-day avg",
+                             fill="tozeroy",
+                             fillcolor=f"rgba({_hex_to_rgb(color)}, 0.08)"))
     if target:
         fig.add_hline(y=target, line_dash="dot", line_color=color, opacity=0.3,
                       annotation_text=f"Target: {target}")
-    fig.update_layout(title=title, template="plotly_dark", height=300,
+    fig.update_layout(title=title, template="plotly_dark", height=350,
                       margin=dict(l=20, r=20, t=40, b=20), showlegend=False,
-                      yaxis=dict(autorange="reversed" if invert else True))
+                      plot_bgcolor=PANEL_BG, paper_bgcolor=CHART_BG)
     return fig
 
+
+st.header("Trends")
 
 col1, col2 = st.columns(2)
 with col1:
@@ -381,10 +467,13 @@ for i in range(0, len(all_metrics), 7):
 
 if z2_weekly:
     fig = go.Figure()
-    colors = ["#4ade80" if v >= 150 else "#facc15" if v >= 90 else "#f87171" for v in z2_weekly]
+    colors = ["#4ade80" if v >= z2_green else "#facc15" if v >= z2_yellow else "#f87171" for v in z2_weekly]
     fig.add_trace(go.Bar(x=z2_dates, y=z2_weekly, marker_color=colors))
-    fig.add_hline(y=150, line_dash="dot", line_color="#4ade80", opacity=0.5, annotation_text="Target: 150 min")
-    fig.update_layout(title="Weekly Zone 2 Minutes", template="plotly_dark", height=300, margin=dict(l=20, r=20, t=40, b=20))
+    fig.add_hline(y=z2_green, line_dash="dot", line_color="#4ade80", opacity=0.5,
+                  annotation_text=f"Target: {z2_green} min")
+    fig.update_layout(title="Weekly Zone 2 Minutes", template="plotly_dark", height=300,
+                      margin=dict(l=20, r=20, t=40, b=20),
+                      plot_bgcolor=PANEL_BG, paper_bgcolor=CHART_BG)
     st.plotly_chart(fig, use_container_width=True)
 
 # Raw data
