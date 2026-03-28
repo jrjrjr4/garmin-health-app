@@ -492,7 +492,11 @@ while current_end >= cutoff:
 if z2_weekly:
     fig = go.Figure()
     colors = ["#4ade80" if v >= z2_green else "#facc15" if v >= z2_yellow else "#f87171" for v in z2_weekly]
-    fig.add_trace(go.Bar(x=z2_labels, y=z2_weekly, marker_color=colors))
+    fig.add_trace(go.Bar(
+        x=z2_labels, y=z2_weekly, marker_color=colors,
+        text=[f"{v:.0f}" for v in z2_weekly],
+        textposition="inside", textfont=dict(color="black", size=13, family="Arial Black"),
+    ))
     fig.add_hline(y=z2_green, line_dash="dot", line_color="#4ade80", opacity=0.5,
                   annotation_text=f"Target: {z2_green} min")
     fig.update_layout(title="Weekly Zone 2 Minutes", template="plotly_dark", height=300,
