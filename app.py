@@ -354,10 +354,18 @@ if collected_at:
     st.caption(f"Last synced: {collected_at[:16].replace('T', ' ')} UTC")
 
 # --- Today's summary ---
-st.header("Today's Snapshot")
-
+# Use most recent day with actual data (early morning syncs may have all nulls)
 latest = all_metrics[-1]
-yesterday = all_metrics[-2] if len(all_metrics) > 1 else None
+for candidate in reversed(all_metrics):
+    if candidate.get("hrv") is not None or candidate.get("sleep_score") is not None:
+        latest = candidate
+        break
+
+latest_date = latest.get("date", "Today")
+st.header(f"Snapshot — {latest_date}")
+
+latest_idx = all_metrics.index(latest)
+yesterday = all_metrics[latest_idx - 1] if latest_idx > 0 else None
 
 metric_display = [
     ("hrv", "HRV", "ms", True),
