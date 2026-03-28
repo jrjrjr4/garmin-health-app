@@ -464,19 +464,35 @@ with sc2:
 with sc3:
     st.plotly_chart(make_chart("REM Sleep %", "rem_sleep_pct", "#8b5cf6", TARGETS["rem_sleep_pct"]["green"]), use_container_width=True)
 
-# Zone 2
+# Zone 2 — bucket backwards from today so each bar is a full 7-day window
 st.header("Zone 2 Training (Weekly)")
-z2_weekly, z2_dates = [], []
-for i in range(0, len(all_metrics), 7):
-    end = min(i + 6, len(all_metrics) - 1)
-    total = sum(m.get("zone2_min", 0) or 0 for m in all_metrics[i:end + 1])
-    z2_weekly.append(total)
-    z2_dates.append(all_metrics[end]["date"])
+z2_weekly, z2_labels = [], []
+today = date.today()
+metrics_by_date = {m["date"]: m for m in all_metrics}
+cutoff = today - timedelta(days=days_back)
+current_end = today
+while current_end >= cutoff:
+    current_start = current_end - timedelta(days=6)
+    week_metrics = []
+    for d in range(7):
+        day = current_start + timedelta(days=d)
+        m = metrics_by_date.get(str(day))
+        if m:
+            week_metrics.append(m)
+    if week_metrics:
+        total = sum(m.get("zone2_min", 0) or 0 for m in week_metrics)
+        if current_start.month == current_end.month:
+            label = f"{current_start.strftime('%b %d')}–{current_end.day}"
+        else:
+            label = f"{current_start.strftime('%b %d')}–{current_end.strftime('%b %d')}"
+        z2_weekly.insert(0, total)
+        z2_labels.insert(0, label)
+    current_end -= timedelta(days=7)
 
 if z2_weekly:
     fig = go.Figure()
     colors = ["#4ade80" if v >= z2_green else "#facc15" if v >= z2_yellow else "#f87171" for v in z2_weekly]
-    fig.add_trace(go.Bar(x=z2_dates, y=z2_weekly, marker_color=colors))
+    fig.add_trace(go.Bar(x=z2_labels, y=z2_weekly, marker_color=colors))
     fig.add_hline(y=z2_green, line_dash="dot", line_color="#4ade80", opacity=0.5,
                   annotation_text=f"Target: {z2_green} min")
     fig.update_layout(title="Weekly Zone 2 Minutes", template="plotly_dark", height=300,
